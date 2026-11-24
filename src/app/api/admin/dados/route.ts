@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DbTimeoutError, isDbConfigured, pgCode, readWithRetry } from "@/lib/db";
+import { isConnectionError, isDbConfigured, pgCode, readWithRetry } from "@/lib/db";
 import { getAdminData } from "@/lib/schedule";
 import { adminEnabled, isAdmin } from "@/lib/security";
 
@@ -39,8 +39,8 @@ export async function GET() {
     const code = pgCode(err) ?? "";
     // Mensagem específica para cada causa, para o conserto ser direto.
     const message =
-      err instanceof DbTimeoutError || code === "CONNECT_TIMEOUT"
-        ? "O banco de dados não respondeu. Confira no Supabase se o projeto está ativo (não pausado) e se a DATABASE_URL é a do Transaction pooler (porta 6543)."
+      isConnectionError(err)
+        ? `O banco de dados não respondeu${code ? ` (${code})` : ""}. Clique em Tentar de novo. Se continuar, confira no Supabase se o projeto está ativo e se a DATABASE_URL é a do Transaction pooler (porta 6543).`
         : code === "42703" || code === "42P01"
           ? "O banco está com a estrutura antiga. Abra o SQL Editor do Supabase, cole todo o arquivo db/schema.sql e clique em Run. Nenhum dado é apagado."
           : code === "28P01" || code === "28000"

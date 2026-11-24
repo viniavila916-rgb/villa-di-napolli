@@ -1,6 +1,6 @@
 import { randomInt } from "node:crypto";
 import { campaign } from "@/config/campaign";
-import { db, pgCode } from "./db";
+import { db, isConnectionError, pgCode, withTimeout } from "./db";
 import { cleanBroker } from "./format";
 import { getSettings } from "./settings";
 import type { AgendaResponse, BookingStatus, PublicSlot } from "./types";
@@ -408,5 +408,28 @@ export async function setBrokerBlock(slotId: string, slug: string, blocked: bool
       on conflict do nothing`;
   } else {
     await sql`delete from broker_slot_blocks where slot_id = ${slotId} and broker_slug = ${slug}`;
+  }
+}
+
+/**
+ * Reserva com proteção contra falha de conexão. Se a conexão cair no meio,
+ * não dá para saber se a reserva foi gravada; então primeiro procuramos a
+ * reserva no banco e só tentamos gravar de novo se ela não existir.
+ */
+export async function createBookingSafely(input: BookingInput): Promise<BookingResult> {
+  try {
+    return await withTimeout(() => createBooking(input), 10000);
+  } catch (err) {
+    if (!isConnectionError(err)) throw err;
+    console.error("[agendar] falha de conexão; conferindo se a reserva foi gravada", err);
+    const existing = await withTimeout(
+      () => db()<{ public_token: string; code: string }[]>`
+        select public_token, code from bookings
+         where slot_id = ${input.slotId} and whatsapp = ${input.whatsapp}
+           and status = 'confirmed' and created_at > now() - interval '2 minutes'`,
+      8000,
+    );
+    if (existing[0]) return { ok: true, token: existing[0].public_token, code: existing[0].code };
+    return withTimeout(() => createBooking(input), 10000);
   }
 }

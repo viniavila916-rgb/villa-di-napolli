@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { campaign } from "@/config/campaign";
 import { dayMonth, weekdayName } from "@/lib/dates";
-import { maskPhone } from "@/lib/format";
+import { cleanBroker, maskPhone } from "@/lib/format";
 import { bookingStatusLabel, type BookingStatus } from "@/lib/types";
 
 type Slot = {
@@ -29,6 +29,7 @@ type Booking = {
   marketing_opt_in: boolean;
   utm_source: string | null;
   utm_campaign: string | null;
+  broker: string | null;
   created_at: string;
 };
 type Unit = { id: string; label: string; in_campaign: boolean; available: boolean };
@@ -263,18 +264,30 @@ type TabProps = { data: Data; act: (p: Record<string, unknown>) => Promise<boole
 /* ------------------------------ Agendamentos ------------------------------ */
 function Agendamentos({ data, act, busy }: TabProps) {
   const [day, setDay] = useState<string>("todos");
+  const [broker, setBroker] = useState<string>("todos");
   const [q, setQ] = useState("");
+  // Agendamentos ativos por corretor (quem não veio por link fica em "sem corretor").
+  const byBroker = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const b of data.bookings) {
+      if (b.status === "cancelled") continue;
+      const k = b.broker || "";
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [data.bookings]);
   const list = useMemo(() => {
     const term = q.trim().toLowerCase();
     return data.bookings.filter(
       (b) =>
         (day === "todos" || b.date === day) &&
+        (broker === "todos" || (b.broker || "") === broker) &&
         (!term ||
           b.name.toLowerCase().includes(term) ||
           b.whatsapp.includes(term.replace(/\D/g, "") || "§") ||
           b.code.toLowerCase().includes(term)),
     );
-  }, [data.bookings, day, q]);
+  }, [data.bookings, day, broker, q]);
 
   return (
     <section>
@@ -305,6 +318,17 @@ function Agendamentos({ data, act, busy }: TabProps) {
             ))}
           </select>
         </label>
+        <label className="grid gap-1 text-sm font-semibold">
+          Corretor
+          <select value={broker} onChange={(e) => setBroker(e.target.value)} className={input}>
+            <option value="todos">Todos</option>
+            {byBroker.map(([name, n]) => (
+              <option key={name || "-"} value={name}>
+                {name || "Sem corretor"} ({n})
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="grid flex-1 gap-1 text-sm font-semibold">
           Buscar por nome, telefone ou código
           <input value={q} onChange={(e) => setQ(e.target.value)} className={input} />
@@ -315,10 +339,10 @@ function Agendamentos({ data, act, busy }: TabProps) {
       </div>
 
       <div className="mt-4 overflow-x-auto rounded-2xl bg-white">
-        <table className="w-full min-w-[820px] text-left text-sm">
+        <table className="w-full min-w-[920px] text-left text-sm">
           <thead className="border-b border-paper-2 text-muted">
             <tr>
-              {["Dia e hora", "Nome", "WhatsApp", "Renda / e-mail", "Origem", "Situação"].map((h) => (
+              {["Dia e hora", "Nome", "WhatsApp", "Renda / e-mail", "Corretor", "Origem", "Situação"].map((h) => (
                 <th key={h} className="px-4 py-3 font-semibold">
                   {h}
                 </th>
@@ -328,7 +352,7 @@ function Agendamentos({ data, act, busy }: TabProps) {
           <tbody>
             {list.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-muted">
+                <td colSpan={7} className="px-4 py-8 text-center text-muted">
                   Nenhum agendamento encontrado.
                 </td>
               </tr>
@@ -358,6 +382,7 @@ function Agendamentos({ data, act, busy }: TabProps) {
                   {b.income_range || "—"}
                   {b.email && <span className="block text-xs text-muted">{b.email}</span>}
                 </td>
+                <td className="px-4 py-3 font-semibold">{b.broker || "—"}</td>
                 <td className="px-4 py-3 text-xs text-muted">
                   {b.utm_source || "—"}
                   {b.utm_campaign && <span className="block">{b.utm_campaign}</span>}
@@ -385,7 +410,78 @@ function Agendamentos({ data, act, busy }: TabProps) {
       <p className="mt-3 text-sm text-muted">
         Ao marcar como Cancelado, o horário volta a ficar disponível na página automaticamente.
       </p>
+
+      <BrokerLinks byBroker={byBroker} />
     </section>
+  );
+}
+
+/** Monta o link de cada corretor e mostra quantos agendamentos cada um trouxe. */
+function BrokerLinks({ byBroker }: { byBroker: [string, number][] }) {
+  const [name, setName] = useState("");
+  const [copied, setCopied] = useState(false);
+  const slug = cleanBroker(name);
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  const link = slug ? `${origin}/?corretor=${slug}` : "";
+  return (
+    <div className="mt-8 grid gap-5 lg:grid-cols-2">
+      <div className="rounded-2xl bg-white p-5">
+        <h2 className="text-xl">Link do corretor</h2>
+        <p className="mt-1 text-sm text-muted">
+          Digite o nome do corretor para gerar o link dele. Quem agendar por esse link fica
+          registrado com o nome do corretor.
+        </p>
+        <label className="mt-3 grid gap-1 text-sm font-semibold">
+          Nome do corretor
+          <input
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              setCopied(false);
+            }}
+            placeholder="Ex.: Vinicius Avila"
+            className={input}
+          />
+        </label>
+        {link && (
+          <div className="mt-3">
+            <p className="break-all rounded-lg bg-paper px-3 py-2 text-sm font-semibold">{link}</p>
+            <button
+              type="button"
+              className={`${btnDark} mt-2`}
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(link);
+                  setCopied(true);
+                } catch {
+                  setCopied(false);
+                }
+              }}
+            >
+              {copied ? "Link copiado" : "Copiar link"}
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="rounded-2xl bg-white p-5">
+        <h2 className="text-xl">Agendamentos por corretor</h2>
+        {byBroker.length === 0 ? (
+          <p className="mt-2 text-sm text-muted">Ainda não há agendamentos.</p>
+        ) : (
+          <table className="mt-2 w-full text-left text-sm">
+            <tbody>
+              {byBroker.map(([b, n]) => (
+                <tr key={b || "-"} className="border-b border-paper-2 last:border-0">
+                  <td className="py-2 font-semibold">{b || "Sem corretor (link normal)"}</td>
+                  <td className="py-2 text-right tabular-nums">{n}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <p className="mt-3 text-xs text-muted">Não conta agendamentos cancelados.</p>
+      </div>
+    </div>
   );
 }
 

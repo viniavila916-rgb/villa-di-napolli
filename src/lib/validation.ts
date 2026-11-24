@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { campaign } from "@/config/campaign";
 
-import { isFullName, isValidWhatsapp, onlyDigits } from "./format";
+import { cleanBroker, isFullName, isValidWhatsapp, onlyDigits } from "./format";
 
 const optionalText = (max: number) =>
   z
@@ -31,6 +31,12 @@ export const bookingSchema = z.object({
   utmSource: optionalText(100),
   utmMedium: optionalText(100),
   utmCampaign: optionalText(100),
+  broker: z
+    .string()
+    .max(80)
+    .optional()
+    .nullable()
+    .transform((v) => cleanBroker(v) || null),
   /** Campo-armadilha: pessoas não veem; robôs costumam preencher. */
   website: z.string().max(0).optional().default(""),
   /** Quando o formulário foi aberto (ms). Envio instantâneo = robô. */

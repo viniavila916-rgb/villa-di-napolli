@@ -42,6 +42,9 @@ create table if not exists bookings (
   updated_at         timestamptz not null default now()
 );
 
+-- Corretor que indicou o cliente (vem do link ?corretor=nome).
+alter table bookings add column if not exists broker text;
+
 create index if not exists bookings_slot_idx on bookings (slot_id);
 
 -- Um mesmo WhatsApp só pode ter UMA reserva confirmada ao mesmo tempo.

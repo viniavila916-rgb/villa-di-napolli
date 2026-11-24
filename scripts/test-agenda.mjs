@@ -82,6 +82,15 @@ res = await post("/api/agendar", person(s1.id));
 json = await res.json();
 check("Segunda pessoa no mesmo horário é recusada", res.status === 409 && json.error === "slot_taken", json.message);
 
+// ---------- Link do corretor ----------
+res = await post("/api/agendar", person(testSlots[5].id, { name: "Cliente do Corretor", broker: "Vinícius Ávila!" }));
+check("Reserva pelo link do corretor é confirmada", res.ok);
+let dd = await adminData();
+const viaBroker = dd.bookings.find((b) => b.name === "Cliente do Corretor");
+check("Painel registra o corretor do link (nome limpo)", viaBroker?.broker === "viniciusavila", viaBroker?.broker);
+check("Reserva sem link fica sem corretor", dd.bookings.find((b) => b.name === "Maria Teste da Silva")?.broker === null);
+await admin({ action: "booking_status", id: viaBroker.id, status: "cancelled" });
+
 // ---------- Validação ----------
 res = await post("/api/agendar", person(s2.id, { name: "Maria" }));
 check("Recusa nome incompleto", res.status === 400);
@@ -166,8 +175,22 @@ await admin({ action: "settings_save", values: { campaign_end_at: originalEnd, s
 res = await fetch(BASE + "/api/admin/exportar", { headers: { Cookie: cookie } });
 const csv = await res.text();
 check("Planilha CSV dos agendamentos é gerada", res.ok && csv.includes("WhatsApp") && csv.includes("Pessoa de Teste"));
+check("Planilha traz a coluna Corretor", csv.includes("Corretor") && csv.includes("viniciusavila"));
 res = await fetch(BASE + "/api/admin/exportar");
 check("Planilha exige login", res.status === 401);
+
+// ---------- Planilha automática (Google Planilhas) ----------
+if (process.env.PLANILHA_KEY) {
+  res = await fetch(BASE + "/api/planilha");
+  check("Planilha automática recusa acesso sem chave", res.status === 401);
+  res = await fetch(BASE + "/api/planilha?chave=chave-errada-000000000000");
+  check("Planilha automática recusa chave errada", res.status === 401);
+  res = await fetch(BASE + "/api/planilha?chave=" + encodeURIComponent(process.env.PLANILHA_KEY));
+  const auto = await res.text();
+  check("Planilha automática entrega os agendamentos com a chave certa", res.ok && auto.includes("Corretor") && auto.includes("Pessoa de Teste"));
+  const active = (await adminData()).bookings.length;
+  check("Planilha automática tem uma linha por agendamento", auto.trim().split("\r\n").length === active + 1, `${active} agendamentos`);
+}
 
 // ---------- Limpeza dos dados de teste ----------
 d = await adminData();

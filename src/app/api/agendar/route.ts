@@ -65,6 +65,7 @@ export async function POST(req: Request) {
       utmSource: data.utmSource,
       utmMedium: data.utmMedium,
       utmCampaign: data.utmCampaign,
+      broker: data.broker,
     });
 
     if (!result.ok) {

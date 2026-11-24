@@ -92,6 +92,7 @@ export type BookingInput = {
   utmSource: string | null;
   utmMedium: string | null;
   utmCampaign: string | null;
+  broker: string | null;
 };
 
 export type BookingResult =
@@ -125,11 +126,11 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
         insert into bookings
           (code, slot_id, slot_date, start_time, end_time, name, whatsapp, email,
            income_range, privacy_consent_at, marketing_opt_in,
-           utm_source, utm_medium, utm_campaign)
+           utm_source, utm_medium, utm_campaign, broker)
         select ${newCode()}, s.id, s.slot_date, s.start_time, s.end_time,
                ${input.name}, ${input.whatsapp}, ${input.email},
                ${input.incomeRange}, now(), ${input.marketingOptIn},
-               ${input.utmSource}, ${input.utmMedium}, ${input.utmCampaign}
+               ${input.utmSource}, ${input.utmMedium}, ${input.utmCampaign}, ${input.broker}
           from event_slots s
          where s.id = ${input.slotId}
            and s.slot_date = any(${campaign.eventDates as unknown as string[]}::date[])
@@ -190,6 +191,7 @@ export type AdminBooking = {
   marketing_opt_in: boolean;
   utm_source: string | null;
   utm_campaign: string | null;
+  broker: string | null;
   created_at: string;
 };
 
@@ -200,7 +202,7 @@ export async function getAdminData() {
     sql<AdminBooking[]>`
       select id, code, name, whatsapp, email, income_range,
              slot_date::text as date, to_char(start_time, 'HH24:MI') as start,
-             status, marketing_opt_in, utm_source, utm_campaign,
+             status, marketing_opt_in, utm_source, utm_campaign, broker,
              to_char(created_at at time zone ${campaign.timeZone}, 'DD/MM HH24:MI') as created_at
         from bookings
        order by slot_date, start_time, created_at`,

@@ -4,6 +4,8 @@
  * Eventos só são disparados por ações reais do visitante.
  */
 
+import { cleanBroker } from "./format";
+
 export const trackingIds = {
   gtm: process.env.NEXT_PUBLIC_GTM_ID || "",
   ga4: process.env.NEXT_PUBLIC_GA4_ID || "",
@@ -79,7 +81,13 @@ export function trackOnce(key: string, event: TrackEvent, params: Params = {}) {
 }
 
 const UTM_KEY = "vn_utm";
-export type Utm = { utmSource?: string; utmMedium?: string; utmCampaign?: string };
+const BROKER_KEY = "vn_corretor";
+export type Utm = {
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  broker?: string;
+};
 
 /** Guarda a origem do anúncio (utm_*) para registrar junto com a reserva. */
 export function captureUtm() {
@@ -93,15 +101,28 @@ export function captureUtm() {
     if (utm.utmSource || utm.utmMedium || utm.utmCampaign) {
       sessionStorage.setItem(UTM_KEY, JSON.stringify(utm));
     }
+    // Link do corretor: ?corretor=nome (ou a forma curta ?c=nome).
+    // Fica guardado neste aparelho: se o cliente voltar depois sem o
+    // link, a indicação continua valendo. Um novo link substitui o anterior.
+    const broker = cleanBroker(q.get("corretor") || q.get("c"));
+    if (broker) localStorage.setItem(BROKER_KEY, broker);
   } catch {
     /* ignora */
   }
 }
 
 export function readUtm(): Utm {
+  let utm: Utm = {};
   try {
-    return JSON.parse(sessionStorage.getItem(UTM_KEY) || "{}") as Utm;
+    utm = JSON.parse(sessionStorage.getItem(UTM_KEY) || "{}") as Utm;
   } catch {
-    return {};
+    /* ignora */
   }
+  try {
+    const broker = cleanBroker(localStorage.getItem(BROKER_KEY));
+    if (broker) utm.broker = broker;
+  } catch {
+    /* ignora */
+  }
+  return utm;
 }

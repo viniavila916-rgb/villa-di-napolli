@@ -38,16 +38,17 @@ Observação: o plano gratuito da Vercel é voltado a uso pessoal. Para uma camp
 2. Escolha o repositório que você acabou de publicar e clique em **Import**.
 3. Antes de clicar em Deploy, abra **Environment Variables** e cadastre:
 
-| Nome                                 | Valor                                                              | Obrigatória |
-| ------------------------------------ | ------------------------------------------------------------------ | ----------- |
-| `DATABASE_URL`                       | O endereço copiado na Etapa 1                                      | Sim         |
-| `ADMIN_PASSWORD`                     | A senha do painel (mínimo 8 caracteres, forte)                     | Sim         |
-| `NEXT_PUBLIC_SITE_URL`               | O endereço do site, ex.: `https://blacknovember.seudominio.com.br` | Sim         |
-| `ADMIN_SESSION_SECRET`               | Um texto aleatório longo (pode bater no teclado 40 letras)         | Recomendada |
-| `NEXT_PUBLIC_META_PIXEL_ID`          | ID do Pixel da Meta                                                | Se usar     |
-| `NEXT_PUBLIC_GA4_ID`                 | ID do Google Analytics 4 (começa com `G-`)                         | Se usar     |
-| `NEXT_PUBLIC_GTM_ID`                 | ID do Google Tag Manager (começa com `GTM-`)                       | Se usar     |
-| `NEXT_PUBLIC_REQUIRE_COOKIE_CONSENT` | `true` (padrão) ou `false`                                         | Opcional    |
+| Nome | Valor | Obrigatória |
+|---|---|---|
+| `DATABASE_URL` | O endereço copiado na Etapa 1 | Sim |
+| `ADMIN_PASSWORD` | A senha do painel (mínimo 8 caracteres, forte) | Sim |
+| `NEXT_PUBLIC_SITE_URL` | O endereço do site, ex.: `https://blacknovember.seudominio.com.br` | Sim |
+| `ADMIN_SESSION_SECRET` | Um texto aleatório longo (pode bater no teclado 40 letras) | Recomendada |
+| `NEXT_PUBLIC_META_PIXEL_ID` | ID do Pixel da Meta | Se usar |
+| `NEXT_PUBLIC_GA4_ID` | ID do Google Analytics 4 (começa com `G-`) | Se usar |
+| `NEXT_PUBLIC_GTM_ID` | ID do Google Tag Manager (começa com `GTM-`) | Se usar |
+| `NEXT_PUBLIC_REQUIRE_COOKIE_CONSENT` | `true` (padrão) ou `false` | Opcional |
+| `PLANILHA_KEY` | Chave secreta (20+ caracteres) para a planilha automática | Se usar |
 
 4. Clique em **Deploy** e aguarde. A Vercel mostra o endereço do site.
 5. Para usar domínio próprio: **Settings > Domains** e siga as instruções. O HTTPS é automático.
@@ -76,6 +77,39 @@ A página só mostra horários que existirem no painel. Enquanto não houver hor
 3. Volte à página: o horário que você reservou deve aparecer como **Indisponível**.
 4. No painel, marque o seu teste como **Cancelado**: o horário volta a ficar disponível.
 5. Se configurou Pixel/GA4, confira nos painéis da Meta e do Google se os eventos chegaram.
+
+## Link de cada corretor
+
+Cada corretor divulga o endereço do site com o nome dele no final:
+
+```
+https://SEU-SITE/?corretor=viniciusavila
+```
+
+- O cliente vê a página normal. O agendamento fica registrado com o corretor.
+- No painel, aba Agendamentos, o bloco "Link do corretor" monta o link: digite o nome e clique em Copiar link.
+- A coluna **Corretor**, o filtro por corretor e o quadro "Agendamentos por corretor" mostram o resultado de cada um. A planilha (CSV) também traz a coluna.
+- O nome no link usa só letras minúsculas e números, sem espaço e sem acento (o painel já gera assim).
+- Quem entra pelo link normal, sem corretor, aparece como "Sem corretor".
+
+## Planilha que se atualiza sozinha (Google Planilhas)
+
+Os agendamentos aparecem em uma planilha do Google, atualizada a cada 1 minuto, sem baixar nada.
+
+1. Na Vercel, em **Settings > Environment Variables**, crie `PLANILHA_KEY` com uma chave secreta de pelo menos 20 letras e números (invente uma, sem espaços nem símbolos). Depois faça **Redeploy**.
+2. Crie uma planilha nova no Google Planilhas.
+3. Menu **Extensões > Apps Script**. Apague o que estiver escrito.
+4. Abra o arquivo `scripts/google-planilha.gs` deste projeto, copie tudo e cole lá.
+5. Na linha `ENDERECO`, troque `SEU-SITE` pelo endereço do site e `SUA-CHAVE-SECRETA` pela chave do passo 1.
+6. Clique em **Salvar**. No seletor de função (no topo), escolha `ligarAtualizacaoAutomatica` e clique em **Executar**.
+7. O Google pede autorização na primeira vez: escolha a sua conta e clique em **Permitir**.
+
+Pronto: a aba "Agendamentos" passa a se atualizar sozinha, incluindo cancelamentos e mudanças de situação.
+
+- A aba "Agendamentos" é reescrita a cada atualização. Faça anotações em outra aba.
+- Quem tiver acesso à planilha vê nomes e telefones. Compartilhe só com a equipe.
+- Se a chave vazar, troque o valor de `PLANILHA_KEY` na Vercel, faça Redeploy e atualize a linha `ENDERECO`.
+- Para desligar: execute a função `desligarAtualizacaoAutomatica`.
 
 ## Eventos de medição enviados
 
@@ -110,4 +144,4 @@ npm run db:setup             # cria as tabelas (alternativa ao SQL Editor)
 npm run dev                  # abre em http://localhost:3000
 ```
 
-`npm run test:agenda` executa 39 verificações automáticas, incluindo duas e dez pessoas disputando o mesmo horário. Ele grava dados de teste: use somente em um banco de testes.
+`npm run test:agenda` executa 47 verificações automáticas, incluindo duas e dez pessoas disputando o mesmo horário. Ele grava dados de teste: use somente em um banco de testes.

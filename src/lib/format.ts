@@ -26,3 +26,17 @@ export function isFullName(v: string) {
   const parts = v.trim().split(/\s+/).filter((p) => p.length >= 2);
   return parts.length >= 2 && /^[\p{L}\s.'-]+$/u.test(v.trim());
 }
+
+/**
+ * Identificação do corretor no link (?corretor=viniciusavila).
+ * Fica só com letras minúsculas, números, ponto, hífen e sublinhado.
+ */
+export function cleanBroker(v: string | null | undefined) {
+  if (!v) return "";
+  return v
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "")
+    .slice(0, 40);
+}

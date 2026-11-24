@@ -17,9 +17,9 @@ export function ConfirmationTracker({ token, date, time }: { token: string; date
 export function WhatsappInvite({ url, isGroup }: { url: string; isGroup: boolean }) {
   if (!url) return null;
   return (
-    <section className="mt-8 rounded-3xl border border-gold/50 bg-ink-2 p-6 sm:p-8">
-      <h2 className="text-3xl sm:text-4xl">Mas falta um último passo</h2>
-      <p className="mt-3 text-paper/85">
+    <section className="mt-6 rounded-3xl border border-gold bg-ink-2 p-5 sm:p-8">
+      <h2 className="text-[1.75rem] sm:text-4xl">Mas falta um último passo</h2>
+      <p className="mt-2 text-paper/85">
         Entre na Lista VIP do WhatsApp para receber informações, lembretes e novidades da Black
         November Villa di Napoli.
       </p>
@@ -28,11 +28,11 @@ export function WhatsappInvite({ url, isGroup }: { url: string; isGroup: boolean
         target="_blank"
         rel="noopener noreferrer"
         onClick={() => track("click_whatsapp_group")}
-        className="btn-gold mt-6 w-full"
+        className="btn-gold mt-5 w-full"
       >
         Entrar na Lista VIP do WhatsApp
       </a>
-      <p className="mt-4 text-sm text-mist">
+      <p className="mt-3 text-sm text-mist">
         A entrada é voluntária e você pode sair quando quiser.
         {isGroup &&
           " Atenção: em grupos de WhatsApp, os outros participantes conseguem ver o seu número de telefone."}

@@ -39,14 +39,14 @@ export default async function Confirmado({ params }: PageProps<"/confirmado/[tok
   });
 
   return (
-    <main className="min-h-dvh bg-ink px-5 py-10 sm:py-16">
+    <main className="min-h-dvh bg-ink px-5 py-6 sm:py-16">
       <div className="mx-auto max-w-2xl">
         <Image
           src="/images/logo-villa-di-napoli-claro.png"
           alt="Villa di Napoli"
           width={792}
           height={440}
-          className="h-auto w-32"
+          className="h-auto w-24 sm:w-32"
           priority
         />
 
@@ -64,13 +64,20 @@ export default async function Confirmado({ params }: PageProps<"/confirmado/[tok
           <>
             <ConfirmationTracker token={token} date={booking.date} time={booking.start} />
 
-            <p className="mt-10 inline-flex items-center gap-2 rounded-full bg-ok/15 px-4 py-1.5 text-sm font-semibold text-ok">
+            <p className="mt-6 inline-flex items-center gap-2 rounded-full bg-ok/15 px-4 py-1.5 text-sm font-semibold text-ok">
               <span className="size-2 rounded-full bg-ok" aria-hidden /> Reserva registrada
             </p>
-            <h1 className="mt-4 text-[2.5rem] sm:text-6xl">Seu agendamento foi confirmado</h1>
-            <p className="mt-4 text-lg text-paper/85">
-              {firstName}, seu horário no plantão da Black November Villa di Napoli está reservado.
+            <h1 className="mt-3 text-[2rem] sm:text-6xl">Seu agendamento foi confirmado</h1>
+            <p className="mt-3 text-paper/85 sm:text-lg">
+              {firstName}, seu horário está reservado para {dayMonth(booking.date)} às{" "}
+              {booking.start}.
             </p>
+
+            {/* O convite do WhatsApp vem primeiro: é a ação mais importante depois da reserva */}
+            <WhatsappInvite
+              url={settings.whatsapp_group_url}
+              isGroup={settings.whatsapp_is_group === "true"}
+            />
 
             {/* Cartão da reserva */}
             <section
@@ -137,11 +144,6 @@ export default async function Confirmado({ params }: PageProps<"/confirmado/[tok
                 </p>
               </div>
             </section>
-
-            <WhatsappInvite
-              url={settings.whatsapp_group_url}
-              isGroup={settings.whatsapp_is_group === "true"}
-            />
 
             <p className="mt-10 text-sm text-mist">
               Precisa trocar o horário? Fale com a equipe do plantão informando o código{" "}

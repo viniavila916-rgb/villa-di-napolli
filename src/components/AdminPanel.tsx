@@ -67,11 +67,7 @@ export function AdminPanel() {
 
   const load = useCallback(async () => {
     try {
-      // Espera no máximo 25 segundos; depois disso mostra o motivo na tela.
-      const res = await fetch("/api/admin/dados", {
-        cache: "no-store",
-        signal: AbortSignal.timeout(25_000),
-      });
+      const res = await fetch("/api/admin/dados", { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (res.status === 401) return setView("login");
       if (!res.ok) {
@@ -83,13 +79,8 @@ export function AdminPanel() {
       }
       setData(json as Data);
       setView("panel");
-    } catch (err) {
-      const timedOut = err instanceof DOMException && err.name === "TimeoutError";
-      setBlockedMsg(
-        timedOut
-          ? "O servidor demorou demais para responder. Normalmente é o banco de dados: confira no Supabase se o projeto está ativo e tente de novo."
-          : "Não foi possível falar com o servidor. Confira sua internet e tente de novo.",
-      );
+    } catch {
+      setBlockedMsg("Não foi possível falar com o servidor. Confira sua internet e tente de novo.");
       setView("blocked");
     }
   }, []);

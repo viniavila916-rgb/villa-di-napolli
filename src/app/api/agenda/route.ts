@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { campaign } from "@/config/campaign";
-import { isDbConfigured, readWithRetry } from "@/lib/db";
+import { isDbConfigured } from "@/lib/db";
 import { getPublicAgenda } from "@/lib/schedule";
 import type { AgendaResponse } from "@/lib/types";
 
@@ -27,7 +27,7 @@ export async function GET(req: Request) {
   const broker = new URL(req.url).searchParams.get("corretor");
   if (!isDbConfigured()) return NextResponse.json(emptyAgenda(), { headers: noStore });
   try {
-    return NextResponse.json(await readWithRetry(() => getPublicAgenda(broker)), { headers: noStore });
+    return NextResponse.json(await getPublicAgenda(broker), { headers: noStore });
   } catch (err) {
     console.error("[agenda] falha ao consultar o banco", err);
     return NextResponse.json(emptyAgenda(), { status: 503, headers: noStore });

@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { ConfirmationTracker, WhatsappInvite } from "@/components/ConfirmationActions";
 import { campaign } from "@/config/campaign";
 import { dayMonth, googleCalendarUrl, longDate } from "@/lib/dates";
-import { isDbConfigured, readWithRetry } from "@/lib/db";
+import { isDbConfigured } from "@/lib/db";
 import { getBookingByToken } from "@/lib/schedule";
 import { getSettings } from "@/lib/settings";
 
@@ -23,9 +23,9 @@ export default async function Confirmado({ params }: PageProps<"/confirmado/[tok
   if (!isDbConfigured()) notFound();
 
   // Esta página só existe para reservas realmente gravadas no banco.
-  const booking = await readWithRetry(() => getBookingByToken(token));
+  const booking = await getBookingByToken(token);
   if (!booking) notFound();
-  const settings = await readWithRetry(getSettings);
+  const settings = await getSettings();
 
   const cancelled = booking.status === "cancelled";
   const firstName = booking.name.split(" ")[0];

@@ -54,7 +54,6 @@ export function AgendaProvider({ children }: { children: ReactNode }) {
         const broker = readUtm().broker;
         const res = await fetch(`/api/agenda${broker ? `?corretor=${encodeURIComponent(broker)}` : ""}`, {
           cache: "no-store",
-          signal: AbortSignal.timeout(20_000),
         });
         const json = (await res.json()) as AgendaResponse;
         setData(json);

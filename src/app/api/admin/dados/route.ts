@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isConnectionError, isDbConfigured, pgCode, readWithRetry } from "@/lib/db";
+import { isDbConfigured, pgCode } from "@/lib/db";
 import { getAdminData } from "@/lib/schedule";
 import { adminEnabled, isAdmin } from "@/lib/security";
 
@@ -20,7 +20,7 @@ export async function GET() {
     );
   }
   try {
-    const data = await readWithRetry(getAdminData);
+    const data = await getAdminData();
     return NextResponse.json(
       {
         ok: true,
@@ -39,13 +39,11 @@ export async function GET() {
     const code = pgCode(err) ?? "";
     // Mensagem específica para cada causa, para o conserto ser direto.
     const message =
-      isConnectionError(err)
-        ? `O banco de dados não respondeu${code ? ` (${code})` : ""}. Clique em Tentar de novo. Se continuar, confira no Supabase se o projeto está ativo e se a DATABASE_URL é a do Transaction pooler (porta 6543).`
-        : code === "42703" || code === "42P01"
-          ? "O banco está com a estrutura antiga. Abra o SQL Editor do Supabase, cole todo o arquivo db/schema.sql e clique em Run. Nenhum dado é apagado."
-          : code === "28P01" || code === "28000"
-            ? "A senha do banco na DATABASE_URL está incorreta. Copie de novo o endereço no Supabase (botão Connect) e atualize a variável na Vercel."
-            : `Não foi possível ler o banco de dados${code ? ` (código ${code})` : ""}. Confira a variável DATABASE_URL.`;
+      code === "42703" || code === "42P01"
+        ? "O banco está com a estrutura antiga. Abra o SQL Editor do Supabase, cole todo o arquivo db/schema.sql e clique em Run. Nenhum dado é apagado."
+        : code === "28P01" || code === "28000"
+          ? "A senha do banco na DATABASE_URL está incorreta. Copie de novo o endereço no Supabase (botão Connect) e atualize a variável na Vercel."
+          : `Não foi possível ler o banco de dados${code ? ` (código ${code})` : ""}. Confira a variável DATABASE_URL.`;
     return NextResponse.json({ ok: false, error: "db", message }, { status: 500 });
   }
 }

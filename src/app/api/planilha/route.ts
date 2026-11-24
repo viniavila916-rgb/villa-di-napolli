@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { bookingsCsv } from "@/lib/csv";
-import { isDbConfigured } from "@/lib/db";
+import { isDbConfigured, readWithRetry } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
   try {
-    return new NextResponse(await bookingsCsv(), {
+    return new NextResponse(await readWithRetry(bookingsCsv), {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Cache-Control": "no-store",

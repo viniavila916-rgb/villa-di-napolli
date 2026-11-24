@@ -206,6 +206,12 @@ export function Booking() {
           Selecione uma das datas disponíveis e consulte os horários para participar da Black
           November Villa di Napoli.
         </p>
+        {data?.broker && (
+          <p className="mt-4 inline-flex items-center gap-2 rounded-full bg-ink px-4 py-2 text-sm text-paper">
+            <span className="size-2 rounded-full bg-gold" aria-hidden />
+            Seu atendimento será com <strong className="font-semibold">{data.broker.name}</strong>
+          </p>
+        )}
 
         <div className="mt-10 grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-start">
           {/* ---------------- Calendário ---------------- */}
@@ -333,7 +339,14 @@ export function Booking() {
               />
             )}
 
-            {!loading && !ended && ready && data?.bookingEnabled && (
+            {!loading && !ended && ready && data?.bookingEnabled && data.brokerRequired && (
+              <EmptyState
+                title="Agende pelo link do seu corretor"
+                text="Os horários do plantão são reservados com cada corretor. Abra o link que o seu corretor enviou para ver os horários dele."
+              />
+            )}
+
+            {!loading && !ended && ready && data?.bookingEnabled && !data.brokerRequired && (
               <>
                 <div className="flex items-baseline justify-between gap-3">
                   <h3 className="text-2xl sm:text-[1.75rem]">
@@ -681,7 +694,7 @@ export function HeroDates() {
   return (
     <div className="grid max-w-md grid-cols-3 gap-2 sm:gap-3">
       {campaign.eventDates.map((date) => {
-        const count = data?.configured ? data.availableByDate[date] : undefined;
+        const count = data?.configured && !data.brokerRequired ? data.availableByDate[date] : undefined;
         return (
           <a
             key={date}

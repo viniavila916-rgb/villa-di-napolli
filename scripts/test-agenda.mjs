@@ -192,6 +192,80 @@ if (process.env.PLANILHA_KEY) {
   check("Planilha automática tem uma linha por agendamento", auto.trim().split("\r\n").length === active + 1, `${active} agendamentos`);
 }
 
+// ---------- Agenda por corretor (links separados, sem distribuição) ----------
+await admin({ action: "generate_slots", date: "2026-11-28", from: "20:00", to: "22:00", durationMin: 30, capacity: 1 });
+const agendaDe = async (slug) => (await fetch(BASE + "/api/agenda" + (slug ? "?corretor=" + slug : ""))).json();
+a = await agenda();
+const [b1, b2, b3, b4] = a.slots.filter((s) => s.date === "2026-11-28" && s.start >= "20:00");
+await admin({ action: "broker_add", name: "Teste Vinícius Ávila" });
+await admin({ action: "broker_add", name: "Teste Rafael Souza" });
+const V = "testeviniciusavila";
+const R = "testerafaelsouza";
+
+let av = await agendaDe(V);
+check("Link do corretor mostra o nome dele e os horários livres", av.broker?.name === "Teste Vinícius Ávila" && av.slots.find((s) => s.id === b1.id).state === "available");
+let ag = await agendaDe("");
+check("Link sem corretor não mostra horários (sem distribuição)", ag.brokerRequired === true && ag.slots.every((s) => s.state !== "available"));
+res = await post("/api/agendar", person(b1.id));
+json = await res.json();
+check("Servidor recusa reserva sem link de corretor", res.status === 409 && json.error === "broker_required", json.message);
+res = await post("/api/agendar", person(b1.id, { broker: "corretor-que-nao-existe" }));
+check("Servidor recusa link de corretor desconhecido", res.status === 409);
+
+res = await post("/api/agendar", person(b1.id, { broker: V, name: "Cliente do Vinicius" }));
+json = await res.json();
+check("Cliente do Vinícius reserva o horário", res.ok);
+const pageV = await (await fetch(`${BASE}/confirmado/${json.token}`)).text();
+check("Confirmação mostra o nome do corretor", pageV.includes("Teste Vinícius Ávila"));
+av = await agendaDe(V);
+const ar = await agendaDe(R);
+check("No link do Vinícius o horário fica indisponível", av.slots.find((s) => s.id === b1.id).state === "unavailable");
+check("No link do Rafael o MESMO horário continua disponível", ar.slots.find((s) => s.id === b1.id).state === "available");
+res = await post("/api/agendar", person(b1.id, { broker: R, name: "Cliente do Rafael" }));
+check("Cliente do Rafael reserva o mesmo horário", res.ok);
+res = await post("/api/agendar", person(b1.id, { broker: V }));
+json = await res.json();
+check("Segundo cliente no mesmo horário do Vinícius é recusado", res.status === 409 && json.error === "slot_taken");
+
+results = await Promise.all(Array.from({ length: 10 }, () => post("/api/agendar", person(b2.id, { broker: V }))));
+ok = results.filter((r) => r.ok).length;
+check("Corrida de 10 pessoas no mesmo horário de um corretor: exatamente 1 confirma", ok === 1, `${ok} confirmada(s)`);
+results = await Promise.all([
+  ...Array.from({ length: 5 }, () => post("/api/agendar", person(b3.id, { broker: V }))),
+  ...Array.from({ length: 5 }, () => post("/api/agendar", person(b3.id, { broker: R }))),
+]);
+ok = results.filter((r) => r.ok).length;
+check("Corrida com 2 corretores no mesmo horário: exatamente 1 por corretor", ok === 2, `${ok} confirmada(s)`);
+d = await adminData();
+const onB3 = d.bookings.filter((b) => b.slot_id === b3.id && b.status !== "cancelled").map((b) => b.broker).sort();
+check("Cada reserva ficou com o corretor do próprio link", onB3.join() === [R, V].sort().join(), onB3.join());
+
+await admin({ action: "broker_block", slotId: b4.id, slug: R, blocked: true });
+check("Bloqueio de um corretor em um horário vale só para ele",
+  (await agendaDe(R)).slots.find((s) => s.id === b4.id).state === "unavailable" &&
+  (await agendaDe(V)).slots.find((s) => s.id === b4.id).state === "available");
+res = await post("/api/agendar", person(b4.id, { broker: R }));
+check("Servidor recusa reserva em horário bloqueado do corretor", res.status === 409);
+
+await admin({ action: "settings_save", values: { default_broker: V } });
+ag = await agendaDe("");
+check("Com corretor do link geral definido, o link geral usa a agenda dele", ag.brokerRequired === false && ag.broker?.slug === V && ag.slots.find((s) => s.id === b1.id).state === "unavailable" && ag.slots.find((s) => s.id === b4.id).state === "available");
+res = await post("/api/agendar", person(b4.id, { name: "Cliente do Link Geral" }));
+check("Reserva pelo link geral vai para o corretor definido", res.ok);
+d = await adminData();
+const geral = d.bookings.find((b) => b.name === "Cliente do Link Geral");
+check("Painel registra corretor e tipo de link", geral?.broker === V && geral?.broker_source === "geral");
+await admin({ action: "settings_save", values: { default_broker: "" } });
+
+await admin({ action: "broker_active", slug: V, active: false });
+await admin({ action: "broker_active", slug: R, active: false });
+ag = await agendaDe("");
+check("Sem corretores ativos, volta a agenda única", ag.brokerRequired === false);
+d = await adminData();
+for (const b of d.bookings.filter((b) => [V, R].includes(b.broker))) await admin({ action: "booking_status", id: b.id, status: "cancelled" });
+await admin({ action: "broker_delete", slug: V });
+await admin({ action: "broker_delete", slug: R });
+
 // ---------- Limpeza dos dados de teste ----------
 d = await adminData();
 for (const u of d.units.filter((u) => u.label.startsWith("TESTE-"))) await admin({ action: "unit_delete", id: u.id });

@@ -63,6 +63,7 @@ O painel mostra uma caixa amarela "Pendências antes de divulgar" até tudo esta
 
 | Aba | O que fazer |
 |---|---|
+| Corretores | Cadastre os corretores; cada um ganha o próprio link e a própria agenda. |
 | Horários | Em "Criar horários", escolha o dia, o horário inicial e final, os minutos por atendimento e quantos atendimentos acontecem ao mesmo tempo. Repita para os 3 dias. Use **Bloquear** para tirar um horário da página (almoço, corretor ausente). |
 | Configurações | Endereço do plantão, link do mapa, orientações, link da Lista VIP do WhatsApp, horário de encerramento da campanha e dados da política de privacidade. |
 | Unidades (opcional) | Cadastre as unidades participantes e ligue o contador só se a lista for mantida atualizada. |
@@ -78,19 +79,26 @@ A página só mostra horários que existirem no painel. Enquanto não houver hor
 4. No painel, marque o seu teste como **Cancelado**: o horário volta a ficar disponível.
 5. Se configurou Pixel/GA4, confira nos painéis da Meta e do Google se os eventos chegaram.
 
-## Link de cada corretor
+## Agenda por corretor (um link para cada um)
 
-Cada corretor divulga o endereço do site com o nome dele no final:
+Cada corretor tem o próprio link e a própria agenda. Não há distribuição de clientes entre corretores.
 
-```
-https://SEU-SITE/?corretor=viniciusavila
-```
+1. No painel, abra a aba **Corretores** e adicione cada corretor pelo nome.
+2. A tabela mostra o link de cada um, com botão **Copiar**. Exemplo: `https://SEU-SITE/?corretor=viniciusavila`.
+3. Cada corretor divulga só o próprio link.
 
-- O cliente vê a página normal. O agendamento fica registrado com o corretor.
-- No painel, aba Agendamentos, o bloco "Link do corretor" monta o link: digite o nome e clique em Copiar link.
-- A coluna **Corretor**, o filtro por corretor e o quadro "Agendamentos por corretor" mostram o resultado de cada um. A planilha (CSV) também traz a coluna.
-- O nome no link usa só letras minúsculas e números, sem espaço e sem acento (o painel já gera assim).
-- Quem entra pelo link normal, sem corretor, aparece como "Sem corretor".
+| Situação | O que acontece |
+|---|---|
+| Cliente abre o link do Vinícius | Vê "Seu atendimento será com Vinícius" e só os horários livres dele |
+| Cliente do Vinícius reserva às 9h | As 9h ficam indisponíveis só no link do Vinícius; nos outros links continuam livres |
+| Dois clientes tentam o mesmo horário do mesmo corretor | Só o primeiro confirma |
+| Cliente abre o site sem link de corretor | Não agenda; a página pede o link do corretor |
+| Corretor não atende em um horário (almoço, ausência) | Aba Horários: clique no nome dele naquele horário para bloquear |
+| Corretor sai do plantão | Aba Corretores: clique em "Ativo (pausar)" |
+
+**Link geral (anúncios):** na aba Corretores existe a opção "Link geral (sem corretor)". Por padrão ele não agenda. Se quiser usar o endereço sem corretor em um anúncio, escolha ali um corretor fixo para receber esses clientes, ou use no anúncio o link de um corretor.
+
+Os horários são os mesmos para todos (aba Horários). Com corretores cadastrados, cada horário tem uma vaga por corretor ativo. Sem nenhum corretor cadastrado, vale a quantidade de vagas definida em cada horário.
 
 ## Planilha que se atualiza sozinha (Google Planilhas)
 
@@ -144,4 +152,4 @@ npm run db:setup             # cria as tabelas (alternativa ao SQL Editor)
 npm run dev                  # abre em http://localhost:3000
 ```
 
-`npm run test:agenda` executa 47 verificações automáticas, incluindo duas e dez pessoas disputando o mesmo horário. Ele grava dados de teste: use somente em um banco de testes.
+`npm run test:agenda` executa 66 verificações automáticas, incluindo duas e dez pessoas disputando o mesmo horário. Ele grava dados de teste: use somente em um banco de testes.

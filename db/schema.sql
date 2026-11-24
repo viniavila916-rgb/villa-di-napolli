@@ -51,15 +51,40 @@ create index if not exists bookings_slot_idx on bookings (slot_id);
 create unique index if not exists bookings_one_confirmed_per_whatsapp
   on bookings (whatsapp) where status = 'confirmed';
 
--- ---------- Regra central: capacidade, bloqueio e horário passado ----------
+-- ---------- Corretores (agenda por corretor) ----------
+-- Com pelo menos um corretor ATIVO cadastrado, a agenda passa a ser
+-- por corretor: cada corretor tem o próprio link e atende 1 cliente
+-- por horário. Não há distribuição automática entre corretores. Sem
+-- corretores cadastrados, vale a capacidade definida em cada horário.
+create table if not exists brokers (
+  slug       text primary key,
+  name       text        not null,
+  active     boolean     not null default true,
+  created_at timestamptz not null default now()
+);
+
+-- Horário em que um corretor específico não atende (almoço, ausência).
+create table if not exists broker_slot_blocks (
+  slot_id     uuid not null references event_slots (id) on delete cascade,
+  broker_slug text not null references brokers (slug) on delete cascade,
+  primary key (slot_id, broker_slug)
+);
+
+-- 'link'  = o cliente veio pelo link do corretor;
+-- 'geral' = veio pelo link sem corretor e caiu no "corretor do link geral".
+alter table bookings add column if not exists broker_source text;
+
+-- ---------- Regra central: vagas, bloqueio e horário passado ----------
 -- Roda dentro do próprio INSERT/UPDATE. Trava a linha do horário
 -- (FOR UPDATE), então duas reservas simultâneas são processadas uma
 -- de cada vez: a segunda já enxerga a primeira e é recusada.
 create or replace function enforce_slot_rules() returns trigger
 language plpgsql as $$
 declare
-  s     event_slots%rowtype;
-  taken integer;
+  s         event_slots%rowtype;
+  taken     integer;
+  n_brokers integer;
+  chosen    text;
 begin
   if new.status = 'cancelled' then
     new.updated_at := now();
@@ -85,14 +110,53 @@ begin
     raise exception 'Horario ja passou' using errcode = 'VN003';
   end if;
 
-  select count(*) into taken
-    from bookings
-   where slot_id = new.slot_id
-     and status <> 'cancelled'
-     and id <> new.id;
+  select count(*) into n_brokers from brokers where active;
 
-  if taken >= s.capacity then
-    raise exception 'Horario esgotado' using errcode = 'VN001';
+  if n_brokers > 0 then
+    -- ===== Agenda por corretor =====
+    if new.broker is not null
+       and exists (select 1 from brokers where slug = new.broker and active) then
+      -- Veio pelo link de um corretor: só serve a vaga DELE.
+      if exists (select 1 from broker_slot_blocks
+                  where slot_id = new.slot_id and broker_slug = new.broker)
+         or exists (select 1 from bookings
+                     where slot_id = new.slot_id and broker = new.broker
+                       and status <> 'cancelled' and id <> new.id) then
+        raise exception 'Corretor ocupado neste horario' using errcode = 'VN001';
+      end if;
+      new.broker_source := coalesce(new.broker_source, 'link');
+    else
+      -- Veio sem link de corretor (ou com link desconhecido). Não há
+      -- distribuição: só é aceito se o painel tiver definido um
+      -- "corretor do link geral"; aí vale a agenda desse corretor.
+      select value into chosen from settings where key = 'default_broker';
+      if chosen is null or chosen = ''
+         or not exists (select 1 from brokers where slug = chosen and active) then
+        raise exception 'Agendamento exige link de corretor' using errcode = 'VN005';
+      end if;
+      if exists (select 1 from broker_slot_blocks
+                  where slot_id = new.slot_id and broker_slug = chosen)
+         or exists (select 1 from bookings
+                     where slot_id = new.slot_id and broker = chosen
+                       and status <> 'cancelled' and id <> new.id) then
+        raise exception 'Corretor ocupado neste horario' using errcode = 'VN001';
+      end if;
+      new.broker := chosen;
+      new.broker_source := 'geral';
+    end if;
+  else
+    -- ===== Agenda única (sem corretores cadastrados) =====
+    select count(*) into taken
+      from bookings
+     where slot_id = new.slot_id
+       and status <> 'cancelled'
+       and id <> new.id;
+    if taken >= s.capacity then
+      raise exception 'Horario esgotado' using errcode = 'VN001';
+    end if;
+    if new.broker is not null then
+      new.broker_source := coalesce(new.broker_source, 'link');
+    end if;
   end if;
 
   new.slot_date  := s.slot_date;
@@ -142,3 +206,5 @@ alter table bookings       enable row level security;
 alter table campaign_units enable row level security;
 alter table settings       enable row level security;
 alter table request_log    enable row level security;
+alter table brokers            enable row level security;
+alter table broker_slot_blocks enable row level security;

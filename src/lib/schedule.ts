@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import { campaign } from "@/config/campaign";
 import { db, pgCode } from "./db";
+import { cleanBroker } from "./format";
 import { getSettings } from "./settings";
 import type { AgendaResponse, BookingStatus, PublicSlot } from "./types";
 
@@ -32,15 +33,60 @@ async function loadSlots(): Promise<SlotRow[]> {
      order by s.slot_date, s.start_time`;
 }
 
-/** Agenda pública: nunca expõe dados pessoais, só disponibilidade. */
-export async function getPublicAgenda(): Promise<AgendaResponse> {
-  const [rows, settings] = await Promise.all([loadSlots(), getSettings()]);
+export type BrokerRow = { slug: string; name: string; active: boolean };
+
+/** Corretores, bloqueios por corretor e vagas já ocupadas por corretor. */
+async function loadBrokerState() {
+  const sql = db();
+  const [brokers, blocks, occupied] = await Promise.all([
+    sql<BrokerRow[]>`select slug, name, active from brokers order by name`,
+    sql<{ slot_id: string; broker_slug: string }[]>`
+      select slot_id, broker_slug from broker_slot_blocks`,
+    sql<{ slot_id: string; broker: string }[]>`
+      select slot_id, broker from bookings
+       where status <> 'cancelled' and broker is not null`,
+  ]);
+  return {
+    brokers,
+    blocks,
+    blocked: new Set(blocks.map((k) => `${k.slot_id}|${k.broker_slug}`)),
+    occupied: new Set(occupied.map((o) => `${o.slot_id}|${o.broker}`)),
+  };
+}
+
+/**
+ * Agenda pública: nunca expõe dados pessoais, só disponibilidade.
+ * Com corretores cadastrados, a disponibilidade é a do corretor do link.
+ * Não há distribuição: sem link de corretor, não há horários.
+ */
+export async function getPublicAgenda(brokerParam?: string | null): Promise<AgendaResponse> {
+  const [rows, settings, state] = await Promise.all([loadSlots(), getSettings(), loadBrokerState()]);
   const ended = Date.now() >= Date.parse(settings.campaign_end_at);
   const bookingEnabled = settings.booking_enabled === "true" && !ended;
 
+  const active = state.brokers.filter((b) => b.active);
+  const brokerMode = active.length > 0;
+  const wanted = cleanBroker(brokerParam);
+  // Sem distribuição: vale o corretor do link; na falta dele, o "corretor
+  // do link geral" definido no painel; sem nenhum dos dois, não há agenda.
+  const mine = brokerMode
+    ? (active.find((b) => b.slug === wanted) ??
+      active.find((b) => b.slug === settings.default_broker) ??
+      null)
+    : null;
+  const brokerRequired = brokerMode && !mine;
+
   const slots: PublicSlot[] = rows.map((r) => {
-    const remaining = Math.max(0, r.capacity - r.taken);
-    const state = r.is_past
+    let capacity = r.capacity;
+    let remaining = Math.max(0, r.capacity - r.taken);
+    if (brokerMode) {
+      const free = active.filter(
+        (b) => !state.blocked.has(`${r.id}|${b.slug}`) && !state.occupied.has(`${r.id}|${b.slug}`),
+      );
+      capacity = 1;
+      remaining = mine && free.some((b) => b.slug === mine.slug) ? 1 : 0;
+    }
+    const state_ = r.is_past
       ? "past"
       : r.status === "open" && remaining > 0 && bookingEnabled
         ? "available"
@@ -50,9 +96,9 @@ export async function getPublicAgenda(): Promise<AgendaResponse> {
       date: r.date,
       start: r.start,
       end: r.end,
-      state,
-      remaining: state === "available" ? remaining : 0,
-      capacity: r.capacity,
+      state: state_,
+      remaining: state_ === "available" ? remaining : 0,
+      capacity,
     };
   });
 
@@ -78,6 +124,8 @@ export async function getPublicAgenda(): Promise<AgendaResponse> {
     bookingEnabled,
     slots,
     availableByDate,
+    broker: mine ? { slug: mine.slug, name: mine.name } : null,
+    brokerRequired,
     units,
   };
 }
@@ -99,7 +147,14 @@ export type BookingResult =
   | { ok: true; token: string; code: string }
   | {
       ok: false;
-      reason: "slot_taken" | "slot_blocked" | "slot_past" | "slot_missing" | "duplicate_phone" | "closed";
+      reason:
+        | "slot_taken"
+        | "slot_blocked"
+        | "slot_past"
+        | "slot_missing"
+        | "duplicate_phone"
+        | "closed"
+        | "broker_required";
     };
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -143,6 +198,7 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
       if (code === "VN002") return { ok: false, reason: "slot_blocked" };
       if (code === "VN003") return { ok: false, reason: "slot_past" };
       if (code === "VN404") return { ok: false, reason: "slot_missing" };
+      if (code === "VN005") return { ok: false, reason: "broker_required" };
       if (code === "23505") {
         const constraint = String((err as { constraint_name?: string }).constraint_name ?? "");
         if (constraint.includes("whatsapp")) return { ok: false, reason: "duplicate_phone" };
@@ -161,16 +217,20 @@ export type ConfirmedBooking = {
   start: string;
   end: string;
   status: BookingStatus;
+  /** Nome do corretor que vai atender (quando há corretores cadastrados). */
+  broker_name: string | null;
 };
 
 export async function getBookingByToken(token: string): Promise<ConfirmedBooking | null> {
   if (!/^[0-9a-f-]{36}$/i.test(token)) return null;
   const [row] = await db()<ConfirmedBooking[]>`
-    select code, name, slot_date::text as date,
-           to_char(start_time, 'HH24:MI') as start,
-           to_char(end_time, 'HH24:MI')   as "end",
-           status
-      from bookings where public_token = ${token}`;
+    select b.code, b.name, b.slot_date::text as date,
+           to_char(b.start_time, 'HH24:MI') as start,
+           to_char(b.end_time, 'HH24:MI')   as "end",
+           b.status, k.name as broker_name
+      from bookings b
+      left join brokers k on k.slug = b.broker
+     where b.public_token = ${token}`;
   return row ?? null;
 }
 
@@ -192,25 +252,28 @@ export type AdminBooking = {
   utm_source: string | null;
   utm_campaign: string | null;
   broker: string | null;
+  broker_source: string | null;
+  slot_id: string;
   created_at: string;
 };
 
 export async function getAdminData() {
   const sql = db();
-  const [slots, bookings, units, settings] = await Promise.all([
+  const [slots, bookings, units, settings, state] = await Promise.all([
     loadSlots(),
     sql<AdminBooking[]>`
       select id, code, name, whatsapp, email, income_range,
              slot_date::text as date, to_char(start_time, 'HH24:MI') as start,
-             status, marketing_opt_in, utm_source, utm_campaign, broker,
+             status, marketing_opt_in, utm_source, utm_campaign, broker, broker_source, slot_id,
              to_char(created_at at time zone ${campaign.timeZone}, 'DD/MM HH24:MI') as created_at
         from bookings
        order by slot_date, start_time, created_at`,
     sql<{ id: string; label: string; in_campaign: boolean; available: boolean }[]>`
       select id, label, in_campaign, available from campaign_units order by label`,
     getSettings(),
+    loadBrokerState(),
   ]);
-  return { slots, bookings, units, settings };
+  return { slots, bookings, units, settings, brokers: state.brokers, brokerBlocks: state.blocks };
 }
 
 /** Cria vários horários de uma vez. Horários que já existem são mantidos. */
@@ -282,6 +345,7 @@ export async function setBookingStatus(id: string, status: BookingStatus) {
     if (code === "VN001") return { ok: false as const, message: "O horário já foi ocupado por outra reserva." };
     if (code === "VN002") return { ok: false as const, message: "O horário está bloqueado. Libere-o antes." };
     if (code === "VN003") return { ok: false as const, message: "O horário já passou." };
+    if (code === "VN005") return { ok: false as const, message: "Esta reserva não tem corretor ativo. Reative o corretor antes." };
     if (code === "23505") return { ok: false as const, message: "Este WhatsApp já tem outra reserva confirmada." };
     throw err;
   }
@@ -309,4 +373,40 @@ export async function updateUnit(id: string, patch: { available?: boolean; in_ca
 
 export async function deleteUnit(id: string) {
   await db()`delete from campaign_units where id = ${id}`;
+}
+
+/* ------------------------------ Corretores ------------------------------ */
+
+export async function addBroker(name: string) {
+  const clean = name.trim().replace(/\s+/g, " ");
+  const slug = cleanBroker(clean);
+  if (slug.length < 2) return { ok: false as const, message: "Informe o nome do corretor." };
+  await db()`
+    insert into brokers (slug, name) values (${slug}, ${clean})
+    on conflict (slug) do update set name = excluded.name, active = true`;
+  return { ok: true as const, slug };
+}
+
+export async function setBrokerActive(slug: string, active: boolean) {
+  await db()`update brokers set active = ${active} where slug = ${slug}`;
+}
+
+export async function deleteBroker(slug: string) {
+  // As reservas já feitas continuam com o nome do corretor registrado.
+  await db()`delete from brokers where slug = ${slug}`;
+}
+
+/** Marca (ou desmarca) um horário em que um corretor específico não atende. */
+export async function setBrokerBlock(slotId: string, slug: string, blocked: boolean) {
+  const sql = db();
+  if (blocked) {
+    await sql`
+      insert into broker_slot_blocks (slot_id, broker_slug)
+      select ${slotId}, ${slug}
+       where exists (select 1 from brokers where slug = ${slug})
+         and exists (select 1 from event_slots where id = ${slotId})
+      on conflict do nothing`;
+  } else {
+    await sql`delete from broker_slot_blocks where slot_id = ${slotId} and broker_slug = ${slug}`;
+  }
 }

@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { ConfirmationTracker, WhatsappInvite } from "@/components/ConfirmationActions";
 import { campaign } from "@/config/campaign";
 import { dayMonth, googleCalendarUrl, longDate } from "@/lib/dates";
-import { isDbConfigured } from "@/lib/db";
+import { isDbConfigured, readWithRetry } from "@/lib/db";
 import { getBookingByToken } from "@/lib/schedule";
 import { getSettings } from "@/lib/settings";
 
@@ -23,9 +23,9 @@ export default async function Confirmado({ params }: PageProps<"/confirmado/[tok
   if (!isDbConfigured()) notFound();
 
   // Esta página só existe para reservas realmente gravadas no banco.
-  const booking = await getBookingByToken(token);
+  const booking = await readWithRetry(() => getBookingByToken(token));
   if (!booking) notFound();
-  const settings = await getSettings();
+  const settings = await readWithRetry(getSettings);
 
   const cancelled = booking.status === "cancelled";
   const firstName = booking.name.split(" ")[0];
@@ -100,6 +100,12 @@ export default async function Confirmado({ params }: PageProps<"/confirmado/[tok
                   <dd className="font-display text-4xl leading-tight">{booking.start}</dd>
                   <dd className="text-muted">Horário de Brasília</dd>
                 </div>
+                {booking.broker_name && (
+                  <div className="sm:col-span-2">
+                    <dt className="text-sm text-muted">Quem vai atender você</dt>
+                    <dd className="text-xl font-semibold">{booking.broker_name}</dd>
+                  </div>
+                )}
                 <div className="sm:col-span-2">
                   <dt className="text-sm text-muted">Endereço do plantão</dt>
                   <dd className="font-semibold">

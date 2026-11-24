@@ -12,6 +12,8 @@ export const settingDefaults = {
   campaign_end_at: campaign.defaultEndAt,
   booking_enabled: "true",
   show_units_counter: "false",
+  /** Corretor que recebe quem entra pelo link sem corretor ("" = ninguém). */
+  default_broker: "",
   company_legal_name: "",
   company_cnpj: "",
   privacy_contact_email: "",

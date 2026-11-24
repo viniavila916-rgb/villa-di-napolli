@@ -20,6 +20,10 @@ export type AgendaResponse = {
   slots: PublicSlot[];
   /** Horários disponíveis por dia (dado real do banco). */
   availableByDate: Record<string, number>;
+  /** Corretor do link (quando o link é de um corretor cadastrado e ativo). */
+  broker: { slug: string; name: string } | null;
+  /** true = a agenda é por corretor e este link não identifica nenhum. */
+  brokerRequired: boolean;
   /** null = contador de unidades desligado ou sem dado. */
   units: { available: number; updatedAt: string } | null;
 };

@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { campaign } from "@/config/campaign";
+import { captureUtm, readUtm } from "@/lib/tracking";
 import type { AgendaResponse } from "@/lib/types";
 
 type AgendaState = {
@@ -48,7 +49,13 @@ export function AgendaProvider({ children }: { children: ReactNode }) {
     if (inFlight.current) return inFlight.current;
     const p = (async () => {
       try {
-        const res = await fetch("/api/agenda", { cache: "no-store" });
+        // Lê o corretor do link (?corretor=nome) antes de consultar a agenda.
+        captureUtm();
+        const broker = readUtm().broker;
+        const res = await fetch(`/api/agenda${broker ? `?corretor=${encodeURIComponent(broker)}` : ""}`, {
+          cache: "no-store",
+          signal: AbortSignal.timeout(20_000),
+        });
         const json = (await res.json()) as AgendaResponse;
         setData(json);
         setFailed(!res.ok);

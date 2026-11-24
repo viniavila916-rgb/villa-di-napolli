@@ -22,6 +22,7 @@ Landing page da campanha Black November do Residencial Villa di Napoli (AMC Cons
 
 - A disponibilidade vem sempre do banco (`/api/agenda`); a página atualiza a cada 20 segundos.
 - A reserva é um único `INSERT`. Uma regra no próprio banco (`enforce_slot_rules`) trava o horário, confere capacidade, bloqueio e data, e recusa o que não couber. Duas pessoas no mesmo instante: só uma confirma.
+- Com corretores cadastrados, a agenda é por corretor: cada link (`?corretor=nome`) tem a própria disponibilidade, uma vaga por horário, sem distribuição automática.
 - Um mesmo WhatsApp não mantém duas reservas confirmadas (índice único).
 - A página de confirmação só existe para reservas gravadas; o evento de conversão é disparado nela.
 - Dados pessoais só saem pelas rotas do painel, que exigem login. As tabelas têm RLS ligado sem políticas públicas.

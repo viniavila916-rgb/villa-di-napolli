@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { campaign } from "@/config/campaign";
-import { isDbConfigured } from "@/lib/db";
+import { isDbConfigured, withTimeout } from "@/lib/db";
 import { getSettings, settingDefaults, type Settings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ export default async function Privacidade() {
   let s: Settings = { ...settingDefaults };
   if (isDbConfigured()) {
     try {
-      s = await getSettings();
+      s = await withTimeout(getSettings, 4000);
     } catch {
       /* mantém os padrões */
     }

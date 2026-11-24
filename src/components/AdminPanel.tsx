@@ -30,13 +30,18 @@ type Booking = {
   utm_source: string | null;
   utm_campaign: string | null;
   broker: string | null;
+  broker_source: string | null;
+  slot_id: string;
   created_at: string;
 };
+type Broker = { slug: string; name: string; active: boolean };
 type Unit = { id: string; label: string; in_campaign: boolean; available: boolean };
 type Data = {
   slots: Slot[];
   bookings: Booking[];
   units: Unit[];
+  brokers: Broker[];
+  brokerBlocks: { slot_id: string; broker_slug: string }[];
   settings: Record<string, string>;
   integrations: { gtm: boolean; ga4: boolean; metaPixel: boolean; siteUrl: boolean };
 };
@@ -56,20 +61,37 @@ export function AdminPanel() {
   const [view, setView] = useState<View>("loading");
   const [blockedMsg, setBlockedMsg] = useState("");
   const [data, setData] = useState<Data | null>(null);
-  const [tab, setTab] = useState<"agendamentos" | "horarios" | "unidades" | "config">("agendamentos");
+  const [tab, setTab] = useState<"agendamentos" | "horarios" | "corretores" | "unidades" | "config">("agendamentos");
   const [flash, setFlash] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/admin/dados", { cache: "no-store" });
-    const json = await res.json().catch(() => ({}));
-    if (res.status === 401) return setView("login");
-    if (!res.ok) {
-      setBlockedMsg(json.message || "Painel indisponível.");
-      return setView("blocked");
+    try {
+      // Espera no máximo 25 segundos; depois disso mostra o motivo na tela.
+      const res = await fetch("/api/admin/dados", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(25_000),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.status === 401) return setView("login");
+      if (!res.ok) {
+        setBlockedMsg(
+          json.message ||
+            `O servidor respondeu com erro (${res.status}). Abra a Vercel, aba Logs, para ver o detalhe.`,
+        );
+        return setView("blocked");
+      }
+      setData(json as Data);
+      setView("panel");
+    } catch (err) {
+      const timedOut = err instanceof DOMException && err.name === "TimeoutError";
+      setBlockedMsg(
+        timedOut
+          ? "O servidor demorou demais para responder. Normalmente é o banco de dados: confira no Supabase se o projeto está ativo e tente de novo."
+          : "Não foi possível falar com o servidor. Confira sua internet e tente de novo.",
+      );
+      setView("blocked");
     }
-    setData(json as Data);
-    setView("panel");
   }, []);
 
   useEffect(() => {
@@ -105,12 +127,27 @@ export function AdminPanel() {
     [load],
   );
 
-  if (view === "loading") return <Shell><p>Carregando…</p></Shell>;
+  if (view === "loading")
+    return (
+      <Shell>
+        <p>Carregando…</p>
+        <noscript>Ative o JavaScript do navegador para usar o painel.</noscript>
+      </Shell>
+    );
   if (view === "blocked")
     return (
       <Shell>
         <h1 className="text-3xl">Painel indisponível</h1>
         <p className="mt-3 rounded-xl bg-white p-4">{blockedMsg}</p>
+        <button
+          className={`${btnDark} mt-4`}
+          onClick={() => {
+            setView("loading");
+            load();
+          }}
+        >
+          Tentar de novo
+        </button>
         <p className="mt-3 text-sm text-muted">Veja o passo a passo no arquivo GUIA-DE-PUBLICACAO.md.</p>
       </Shell>
     );
@@ -120,6 +157,7 @@ export function AdminPanel() {
   const tabs: [typeof tab, string][] = [
     ["agendamentos", `Agendamentos (${data.bookings.filter((b) => b.status !== "cancelled").length})`],
     ["horarios", `Horários (${data.slots.length})`],
+    ["corretores", `Corretores (${data.brokers.length})`],
     ["unidades", `Unidades (${data.units.length})`],
     ["config", "Configurações"],
   ];
@@ -176,6 +214,7 @@ export function AdminPanel() {
       <div className="mt-6">
         {tab === "agendamentos" && <Agendamentos data={data} act={act} busy={busy} />}
         {tab === "horarios" && <Horarios data={data} act={act} busy={busy} />}
+        {tab === "corretores" && <Corretores data={data} act={act} busy={busy} />}
         {tab === "unidades" && <Unidades data={data} act={act} busy={busy} />}
         {tab === "config" && <Config data={data} act={act} busy={busy} />}
       </div>
@@ -239,6 +278,8 @@ function Pendencias({ data }: { data: Data }) {
   const s = data.settings;
   const items: string[] = [];
   if (data.slots.length === 0) items.push("Cadastrar os horários reais do plantão (aba Horários).");
+  if (data.brokers.length === 0)
+    items.push("Cadastrar os corretores para ativar a agenda por corretor (aba Corretores).");
   if (!s.plantao_address) items.push("Informar o endereço do plantão (aba Configurações).");
   if (!s.whatsapp_group_url) items.push("Informar o link da Lista VIP do WhatsApp (aba Configurações).");
   if (!s.company_cnpj || !s.privacy_contact_email)
@@ -266,6 +307,7 @@ function Agendamentos({ data, act, busy }: TabProps) {
   const [day, setDay] = useState<string>("todos");
   const [broker, setBroker] = useState<string>("todos");
   const [q, setQ] = useState("");
+  const brokerLabel = (slug: string) => data.brokers.find((b) => b.slug === slug)?.name ?? slug;
   // Agendamentos ativos por corretor (quem não veio por link fica em "sem corretor").
   const byBroker = useMemo(() => {
     const m = new Map<string, number>();
@@ -324,7 +366,7 @@ function Agendamentos({ data, act, busy }: TabProps) {
             <option value="todos">Todos</option>
             {byBroker.map(([name, n]) => (
               <option key={name || "-"} value={name}>
-                {name || "Sem corretor"} ({n})
+                {name ? brokerLabel(name) : "Sem corretor"} ({n})
               </option>
             ))}
           </select>
@@ -382,7 +424,12 @@ function Agendamentos({ data, act, busy }: TabProps) {
                   {b.income_range || "—"}
                   {b.email && <span className="block text-xs text-muted">{b.email}</span>}
                 </td>
-                <td className="px-4 py-3 font-semibold">{b.broker || "—"}</td>
+                <td className="px-4 py-3 font-semibold">
+                  {b.broker ? brokerLabel(b.broker) : "—"}
+                  {b.broker_source === "geral" && (
+                    <span className="block text-xs font-normal text-muted">Pelo link geral</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-xs text-muted">
                   {b.utm_source || "—"}
                   {b.utm_campaign && <span className="block">{b.utm_campaign}</span>}
@@ -411,82 +458,163 @@ function Agendamentos({ data, act, busy }: TabProps) {
         Ao marcar como Cancelado, o horário volta a ficar disponível na página automaticamente.
       </p>
 
-      <BrokerLinks byBroker={byBroker} />
+      <BrokerTotals byBroker={byBroker} label={brokerLabel} />
     </section>
   );
 }
 
-/** Monta o link de cada corretor e mostra quantos agendamentos cada um trouxe. */
-function BrokerLinks({ byBroker }: { byBroker: [string, number][] }) {
-  const [name, setName] = useState("");
-  const [copied, setCopied] = useState(false);
-  const slug = cleanBroker(name);
-  const origin = typeof window === "undefined" ? "" : window.location.origin;
-  const link = slug ? `${origin}/?corretor=${slug}` : "";
+function BrokerTotals({ byBroker, label }: { byBroker: [string, number][]; label: (s: string) => string }) {
+  if (byBroker.length === 0) return null;
   return (
-    <div className="mt-8 grid gap-5 lg:grid-cols-2">
+    <div className="mt-8 max-w-xl rounded-2xl bg-white p-5">
+      <h2 className="text-xl">Agendamentos por corretor</h2>
+      <table className="mt-2 w-full text-left text-sm">
+        <tbody>
+          {byBroker.map(([b, n]) => (
+            <tr key={b || "-"} className="border-b border-paper-2 last:border-0">
+              <td className="py-2 font-semibold">{b ? label(b) : "Sem corretor"}</td>
+              <td className="py-2 text-right tabular-nums">{n}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-3 text-xs text-muted">Não conta agendamentos cancelados.</p>
+    </div>
+  );
+}
+
+/* ------------------------------- Corretores ------------------------------- */
+function Corretores({ data, act, busy }: TabProps) {
+  const [name, setName] = useState("");
+  const [copied, setCopied] = useState("");
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  const activeCount = data.brokers.filter((b) => b.active).length;
+  const count = (slug: string) =>
+    data.bookings.filter((b) => b.broker === slug && b.status !== "cancelled").length;
+  return (
+    <section className="grid gap-5">
       <div className="rounded-2xl bg-white p-5">
-        <h2 className="text-xl">Link do corretor</h2>
+        <h2 className="text-xl">Agenda por corretor</h2>
         <p className="mt-1 text-sm text-muted">
-          Digite o nome do corretor para gerar o link dele. Quem agendar por esse link fica
-          registrado com o nome do corretor.
+          {activeCount > 0
+            ? `Ligada, com ${activeCount} corretor(es) ativo(s). Cada corretor tem o próprio link e atende 1 cliente por horário. Quem abre o link de um corretor só vê os horários livres dele. Não há distribuição entre corretores.`
+            : "Desligada. Cadastre os corretores abaixo para ligar. Enquanto não houver corretor ativo, vale a quantidade de vagas definida em cada horário."}
         </p>
-        <label className="mt-3 grid gap-1 text-sm font-semibold">
-          Nome do corretor
-          <input
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setCopied(false);
-            }}
-            placeholder="Ex.: Vinicius Avila"
-            className={input}
-          />
-        </label>
-        {link && (
-          <div className="mt-3">
-            <p className="break-all rounded-lg bg-paper px-3 py-2 text-sm font-semibold">{link}</p>
-            <button
-              type="button"
-              className={`${btnDark} mt-2`}
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(link);
-                  setCopied(true);
-                } catch {
-                  setCopied(false);
-                }
-              }}
-            >
-              {copied ? "Link copiado" : "Copiar link"}
-            </button>
-          </div>
-        )}
+        <form
+          className="mt-4 flex flex-wrap items-end gap-3"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (await act({ action: "broker_add", name })) setName("");
+          }}
+        >
+          <label className="grid flex-1 gap-1 text-sm font-semibold">
+            Nome do corretor
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Vinicius Avila" className={input} />
+          </label>
+          <button className={btnDark} disabled={busy || cleanBroker(name).length < 2}>
+            Adicionar corretor
+          </button>
+        </form>
       </div>
-      <div className="rounded-2xl bg-white p-5">
-        <h2 className="text-xl">Agendamentos por corretor</h2>
-        {byBroker.length === 0 ? (
-          <p className="mt-2 text-sm text-muted">Ainda não há agendamentos.</p>
-        ) : (
-          <table className="mt-2 w-full text-left text-sm">
+
+      {data.brokers.length > 0 && (
+        <div className="overflow-x-auto rounded-2xl bg-white">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="border-b border-paper-2 text-muted">
+              <tr>
+                {["Corretor", "Link para divulgar", "Agendamentos", "Situação", ""].map((h) => (
+                  <th key={h} className="px-4 py-3 font-semibold">{h}</th>
+                ))}
+              </tr>
+            </thead>
             <tbody>
-              {byBroker.map(([b, n]) => (
-                <tr key={b || "-"} className="border-b border-paper-2 last:border-0">
-                  <td className="py-2 font-semibold">{b || "Sem corretor (link normal)"}</td>
-                  <td className="py-2 text-right tabular-nums">{n}</td>
-                </tr>
-              ))}
+              {data.brokers.map((b) => {
+                const link = `${origin}/?corretor=${b.slug}`;
+                return (
+                  <tr key={b.slug} className={`border-b border-paper-2 last:border-0 ${b.active ? "" : "opacity-55"}`}>
+                    <td className="px-4 py-3 font-semibold">{b.name}</td>
+                    <td className="px-4 py-3">
+                      <span className="break-all">{link}</span>
+                      <button
+                        type="button"
+                        className={`${btnLine} ml-2`}
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(link);
+                            setCopied(b.slug);
+                          } catch {
+                            setCopied("");
+                          }
+                        }}
+                      >
+                        {copied === b.slug ? "Copiado" : "Copiar"}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 tabular-nums">{count(b.slug)}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        className={btnLine}
+                        disabled={busy}
+                        onClick={() => act({ action: "broker_active", slug: b.slug, active: !b.active })}
+                      >
+                        {b.active ? "Ativo (pausar)" : "Pausado (ativar)"}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {count(b.slug) === 0 && (
+                        <button className={btnLine} disabled={busy} onClick={() => act({ action: "broker_delete", slug: b.slug })}>
+                          Excluir
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        )}
-        <p className="mt-3 text-xs text-muted">Não conta agendamentos cancelados.</p>
-      </div>
-    </div>
+        </div>
+      )}
+      {activeCount > 0 && (
+        <div className="rounded-2xl bg-white p-5">
+          <h2 className="text-xl">Link geral (sem corretor)</h2>
+          <p className="mt-1 text-sm text-muted">
+            É o endereço do site sem nada no final, por exemplo o de um anúncio. Como não há
+            distribuição, escolha o que acontece com quem entra por ele.
+          </p>
+          <select
+            aria-label="Corretor do link geral"
+            className={`${input} mt-3 max-w-md`}
+            disabled={busy}
+            value={data.settings.default_broker ?? ""}
+            onChange={(e) => act({ action: "settings_save", values: { default_broker: e.target.value } })}
+          >
+            <option value="">Não agenda: pede o link do corretor</option>
+            {data.brokers
+              .filter((b) => b.active)
+              .map((b) => (
+                <option key={b.slug} value={b.slug}>
+                  Agenda com {b.name}
+                </option>
+              ))}
+          </select>
+        </div>
+      )}
+      <p className="text-sm text-muted">
+        Para marcar um horário em que um corretor não atende (almoço, ausência), use a aba
+        Horários: cada horário mostra os corretores, e um clique no nome bloqueia ou libera.
+      </p>
+    </section>
   );
 }
 
 /* -------------------------------- Horários -------------------------------- */
 function Horarios({ data, act, busy }: TabProps) {
+  const activeBrokers = data.brokers.filter((b) => b.active);
+  const brokerMode = activeBrokers.length > 0;
+  const blocked = new Set(data.brokerBlocks.map((k) => `${k.slot_id}|${k.broker_slug}`));
+  const occupied = new Set(
+    data.bookings.filter((b) => b.status !== "cancelled" && b.broker).map((b) => `${b.slot_id}|${b.broker}`),
+  );
   const [form, setForm] = useState({
     date: campaign.eventDates[0] as string,
     from: "",
@@ -495,6 +623,7 @@ function Horarios({ data, act, busy }: TabProps) {
     capacity: "1",
   });
   const valid = form.from && form.to && Number(form.durationMin) >= 5 && Number(form.capacity) >= 1;
+  // Na agenda por corretor as vagas vêm dos corretores; o campo de capacidade fica oculto.
 
   return (
     <section>
@@ -539,10 +668,16 @@ function Horarios({ data, act, busy }: TabProps) {
           Minutos por atendimento
           <input type="number" min={5} max={480} required value={form.durationMin} onChange={(e) => setForm({ ...form, durationMin: e.target.value })} className={input} />
         </label>
-        <label className="grid gap-1 text-sm font-semibold">
-          Atendimentos ao mesmo tempo
-          <input type="number" min={1} max={50} required value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} className={input} />
-        </label>
+        {brokerMode ? (
+          <p className="self-end pb-2 text-sm text-muted">
+            Vagas por horário: {activeBrokers.length} (uma por corretor ativo)
+          </p>
+        ) : (
+          <label className="grid gap-1 text-sm font-semibold">
+            Atendimentos ao mesmo tempo
+            <input type="number" min={1} max={50} required value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} className={input} />
+          </label>
+        )}
         <button className={`${btnDark} sm:col-span-6 sm:justify-self-start`} disabled={busy || !valid}>
           Criar horários
         </button>
@@ -560,14 +695,17 @@ function Horarios({ data, act, busy }: TabProps) {
                 <table className="w-full min-w-[640px] text-left text-sm">
                   <thead className="border-b border-paper-2 text-muted">
                     <tr>
-                      {["Horário", "Situação na página", "Reservas", "Vagas no horário", "Ações"].map((h) => (
+                      {["Horário", "Situação na página", "Reservas", brokerMode ? "Corretores (clique para bloquear ou liberar)" : "Vagas no horário", "Ações"].map((h) => (
                         <th key={h} className="px-4 py-3 font-semibold">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {slots.map((s) => {
-                      const full = s.taken >= s.capacity;
+                      const freeBrokers = activeBrokers.filter(
+                        (b) => !blocked.has(`${s.id}|${b.slug}`) && !occupied.has(`${s.id}|${b.slug}`),
+                      ).length;
+                      const full = brokerMode ? freeBrokers === 0 : s.taken >= s.capacity;
                       const label = s.is_past
                         ? "Encerrado"
                         : s.status === "blocked"
@@ -591,6 +729,33 @@ function Horarios({ data, act, busy }: TabProps) {
                           </td>
                           <td className="px-4 py-2.5">{s.taken}</td>
                           <td className="px-4 py-2.5">
+                            {brokerMode ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {activeBrokers.map((b) => {
+                                  const isBusy = occupied.has(`${s.id}|${b.slug}`);
+                                  const isBlocked = blocked.has(`${s.id}|${b.slug}`);
+                                  return (
+                                    <button
+                                      key={b.slug}
+                                      type="button"
+                                      disabled={busy || isBusy}
+                                      title={isBusy ? "Tem cliente agendado" : isBlocked ? "Bloqueado: clique para liberar" : "Livre: clique para bloquear"}
+                                      onClick={() => act({ action: "broker_block", slotId: s.id, slug: b.slug, blocked: !isBlocked })}
+                                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                        isBusy
+                                          ? "bg-ink text-paper"
+                                          : isBlocked
+                                            ? "bg-paper-2 text-muted line-through"
+                                            : "bg-ok-wash text-ok-deep"
+                                      }`}
+                                    >
+                                      {b.name}
+                                      {isBusy ? " · agendado" : isBlocked ? " · bloqueado" : " · livre"}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : (
                             <select
                               aria-label={`Vagas do horário ${s.start}`}
                               value={s.capacity}
@@ -602,6 +767,7 @@ function Horarios({ data, act, busy }: TabProps) {
                                 <option key={n} value={n}>{n}</option>
                               ))}
                             </select>
+                            )}
                           </td>
                           <td className="px-4 py-2.5">
                             <div className="flex gap-2">

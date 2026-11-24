@@ -27,8 +27,11 @@ export function db(): Sql {
     globalRef.__vnSql = postgres(url, {
       prepare: false,
       max: 5,
-      idle_timeout: 20,
-      connect_timeout: 10,
+      // Conexões curtas: em hospedagem "serverless" uma conexão antiga pode
+      // ficar muda depois que o servidor é pausado. Melhor abrir outra.
+      idle_timeout: 10,
+      max_lifetime: 300,
+      connect_timeout: 8,
       ssl: sslOff ? false : "require",
       onnotice: () => {},
     });
@@ -42,4 +45,47 @@ export function pgCode(err: unknown): string | undefined {
     return String((err as { code: unknown }).code);
   }
   return undefined;
+}
+
+export class DbTimeoutError extends Error {
+  constructor() {
+    super("O banco de dados demorou demais para responder");
+    this.name = "DbTimeoutError";
+  }
+}
+
+/** Descarta a conexão atual; a próxima consulta abre uma nova. */
+export function resetDb() {
+  const old = globalRef.__vnSql;
+  globalRef.__vnSql = undefined;
+  old?.end({ timeout: 0 }).catch(() => {});
+}
+
+/**
+ * Nenhuma consulta fica esperando para sempre: se o banco não responder
+ * no prazo, a conexão é descartada e o erro aparece para quem chamou.
+ */
+export async function withTimeout<T>(run: () => Promise<T>, ms = 8000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      resetDb();
+      reject(new DbTimeoutError());
+    }, ms);
+  });
+  try {
+    return await Promise.race([run(), limit]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Para leituras: tenta uma segunda vez, já com conexão nova. */
+export async function readWithRetry<T>(run: () => Promise<T>, ms = 6000): Promise<T> {
+  try {
+    return await withTimeout(run, ms);
+  } catch (err) {
+    if (!(err instanceof DbTimeoutError)) resetDb();
+    return withTimeout(run, ms);
+  }
 }

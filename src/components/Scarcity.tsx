@@ -14,7 +14,7 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
  */
 export function Scarcity() {
   const { data, selectDate } = useAgenda();
-  const ready = Boolean(data?.configured && data.slots.length > 0);
+  const ready = Boolean(data?.configured && data.slots.length > 0 && !data.brokerRequired);
   const total = ready ? Object.values(data!.availableByDate).reduce((a, b) => a + b, 0) : 0;
   const units = data?.units ?? null;
 
